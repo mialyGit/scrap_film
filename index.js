@@ -12,15 +12,22 @@ import fs from 'fs'
 
 import chalk from 'chalk';
 
+import dotenv from 'dotenv'
 
 (async () => {
+
+    dotenv.config();
+
+    const headless = process.env.HEADLESS == 'true' || process.env.HEADLESS == '1';
+    const DEFAULT_TIMEOUT = parseInt(process.env.DEFAULT_TIMEOUT || '2000');
+    const NBR_PAGE = parseInt(process.env.NBR_PAGE || '100');
 
     puppeteer.use(AdblockerPlugin({ blockTrackers: false }))
     puppeteer.use(StealthPlugin())
     puppeteer.use(AnonymizeUa())
 
     const browserSetup = {
-        "headless": false,
+        "headless": headless,
         "defaultViewport": null,
         "userDataDir": "./profile",
         "ignoreHTTPSErrors": true,
@@ -44,14 +51,6 @@ import chalk from 'chalk';
 
     var responses = [], init_nbr_page = 1, init_info=0;
 
-    // var counter = setInterval(() => {
-    //     process.stdout.clearLine();
-    //     process.stdout.cursorTo(0);
-    //     var c = (c + 1) % 4;
-    //     var dots = new Array(c + 1).join(".");
-    //     process.stdout.write("Lancement de scraping " + dots);
-    // }, 1000);
-
     try {  
         var ids = fs.readFileSync('log.txt', 'utf8');
         init_nbr_page = parseInt(ids.split(',')[0]);
@@ -67,7 +66,7 @@ import chalk from 'chalk';
         
     }
 
-    for (let i = init_nbr_page; i <= 1009; i++) {
+    for (let i = init_nbr_page; i <= NBR_PAGE; i++) {
 
         var current_page = i == 1 ? '' : 'page/' + i;
 
@@ -78,7 +77,7 @@ import chalk from 'chalk';
         }
 
         await page.waitForSelector('#dle-content')
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
 
         const links = await page.evaluate(() => {
             const linkElements = document.querySelectorAll('#dle-content .short a.short-poster');
@@ -108,12 +107,12 @@ import chalk from 'chalk';
                 await page.waitForSelector('.fr-count.fr-common', {timeout:5000})
             } catch (error) {
                 console.log(chalk.red(`\nFilm not found at : Page : ${chalk.green(i)} \tInfo : ${j+1} \tDonnées : ${chalk.blue(responses.length)}`));
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
                 continue;
             }
             
 
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
             
             const genre = await page.evaluate(() => {
                 return document.querySelectorAll('#s-list li[rel="nofollow"]')[0]?.innerText?.split(':')[1]
@@ -152,7 +151,7 @@ import chalk from 'chalk';
 
     }
     
-    console.log(responses);
+    console.log(chalk.green(`\n--------------------------------------- Scraping finished -----------------------------\n`));
 
     function isDataInText(dataArray, searchText) {
         for (let i = 0; i < dataArray.length; i++) {
