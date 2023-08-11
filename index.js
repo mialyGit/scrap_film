@@ -114,6 +114,10 @@ import dotenv from 'dotenv'
 
             await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
             
+            await scrollDown('#s-list');
+
+            await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
+            
             const genre = await page.evaluate(() => {
                 return document.querySelectorAll('#s-list li[rel="nofollow"]')[0]?.innerText?.split(':')[1]
             });
@@ -167,4 +171,15 @@ import dotenv from 'dotenv'
         return list.some(elem => JSON.stringify(elem) == JSON.stringify(obj))
     }
 
+    async function scrollDown(selector) {
+        await page.$eval(selector, e => {
+            e.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+        });
+    }
+
+    async function scrollDownElement(el){
+        await page.evaluate((e)=>{
+            e.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+        }, el)
+    }
 })()
