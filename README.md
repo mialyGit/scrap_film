@@ -5,6 +5,7 @@ This application is designed to scrape movie notes from French Stream using Pupp
 ## Features
 
 - Scrape movie notes from French Stream.
+- View all the best movies before downloading them! Our scraper helps you gather valuable notes and reviews to make informed decisions.
 - Uses Puppeteer for headless browsing and scraping.
 
 ## Prerequisites
