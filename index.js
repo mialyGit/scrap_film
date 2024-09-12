@@ -4,48 +4,43 @@ import fs from 'fs';
 import AdblockerPlugin from 'puppeteer-extra-plugin-adblocker';
 import chalk from 'chalk';
 
-connect({
-
-    headless: false,
-
-    args: ["--start-maximized"],
-
-    customConfig: {},
-
-    connectOption: {
-        defaultViewport: null
-    },
-
-    skipTarget: [],
-
-    fingerprint: false,
-
-    turnstile: true,
-
-    connectOption: {},
-
-    fpconfig: {},
-
-    plugins: [
-        AdblockerPlugin({ blockTrackers: false })
-    ]
-
-    // proxy:{
-    //     host:'<proxy-host>',
-    //     port:'<proxy-port>',
-    //     username:'<proxy-username>',
-    //     password:'<proxy-password>'
-    // }
-
-})
-.then(async response => {
+(async () => {
     
+    /** 
+     * 
+     * @type {import("puppeteer-real-browser").Options}
+     */
+    const realBrowserOption = {
+        headless: false,
+        args: ["--start-maximized"],
+        connectOption: {
+            defaultViewport: null
+        },
+        skipTarget: [],
+        fingerprint: false,
+        turnstile: true,
+        fpconfig: {},
+        plugins: [
+            AdblockerPlugin({ blockTrackers: false })
+        ]
+
+        // proxy:{
+        //     host:'<proxy-host>',
+        //     port:'<proxy-port>',
+        //     username:'<proxy-username>',
+        //     password:'<proxy-password>'
+        // }
+    };
+
+
+    const {browser, page} = await connect(realBrowserOption)
+    
+
     dotenv.config();
 
     const DEFAULT_TIMEOUT = parseInt(process.env.DEFAULT_TIMEOUT || '2000');
     const NBR_PAGE = parseInt(process.env.NBR_PAGE || '100');
-    const USE_WEB_CACHE = process.env.USE_WEB_CACHE == 'true' || process.env.USE_WEB_CACHE == '1';
-    const URL_TO_SCRAPE = process.env.URL_TO_SCRAPE || 'https://french-stream.hair';
+    const URL_TO_SCRAPE = process.env.URL_TO_SCRAPE || 'https://vvw.french-stream.bio';
     const NOTE = process.env.NOTE || '8';
     const GENRES = process.env.GENRES || 'horreur|thriller';
 
@@ -60,8 +55,6 @@ connect({
         noteConfig = createObjectWithMinMax(arrayOfNote[0], '10');
     }
 
-    const {browser, page} = response
-    
     await page.setDefaultTimeout(0)
     await page.setDefaultNavigationTimeout(0)
 
@@ -86,25 +79,20 @@ connect({
 
         var current_page = i == 1 ? '' : 'page/' + i;
 
-        var proxy_url = USE_WEB_CACHE ? "https://webcache.googleusercontent.com/search?q=cache:" : "";
-        
         try {
-            await page.goto(proxy_url + URL_TO_SCRAPE + '/'+current_page, { waitUntil: 'domcontentloaded' });
+            await page.goto(URL_TO_SCRAPE + '/'+current_page, { waitUntil: 'domcontentloaded' });
         } catch (error) {
+            console.log(error);
             
         }
-
-        let verify = null
-        let startDate = Date.now()
-        while (!verify && (Date.now() - startDate) < 30000) {
-            verify = await page.evaluate(() => { return document.querySelector('.link_row') ? true : null }).catch(() => null)
-            await new Promise(r => setTimeout(r, 1000)); 
-        }
         
-        // await resolveCloudFlare()
+        if(i == init_nbr_page) {
+            await waitForCloudflareResolved()
+        }
+
         await page.waitForSelector('#dle-content')
 
-        await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
+        await sleep(DEFAULT_TIMEOUT)
 
         const links = await page.evaluate(() => {
             const linkElements = document.querySelectorAll('#dle-content .short a.short-poster');
@@ -121,7 +109,7 @@ connect({
             const link = links[j];
 
             try {
-                await page.goto(proxy_url + link, { waitUntil: 'networkidle2' });
+                await page.goto(link, { waitUntil: 'networkidle2' });
             } catch (error) {
                 
             }
@@ -134,23 +122,27 @@ connect({
                 await page.waitForSelector('.fr-count.fr-common', {timeout:5000})
             } catch (error) {
                 console.log(chalk.red(`\nFilm not found at : Page : ${chalk.green(i)} \tInfo : ${j+1} \tDonnées : ${chalk.blue(responses.length)}`));
-                await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
+                await sleep(DEFAULT_TIMEOUT)
                 continue;
             }
             
 
-            await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
+            await sleep(DEFAULT_TIMEOUT)
             
             await scrollDown('#s-list');
 
-            await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
+            await sleep(DEFAULT_TIMEOUT)
             
             const genre = await page.evaluate(() => {
                 return document.querySelectorAll('#s-list li[rel="nofollow"]')[0]?.innerText?.split(':')[1]
             });
 
             const title = await page.evaluate(() => {
-                return document.querySelectorAll('h1#s-title')[0].innerText
+                for (var h1 of document.querySelectorAll('h1')) {
+                    const title = h1.innerText?.trim()
+                    if(title) return title
+                }
+                return '';
             });
 
             const note = await page.evaluate(() => {
@@ -213,20 +205,20 @@ connect({
         return list.some(elem => JSON.stringify(elem) == JSON.stringify(obj))
     }
 
+    async function waitForCloudflareResolved(timeout = 30000) {
+        let verify = null
+        let startDate = Date.now()
+        while (!verify && (Date.now() - startDate) < timeout) {
+            verify = await page.evaluate(() => { return document.querySelector('.link_row') ? true : null }).catch(() => null)
+            await new Promise(r => setTimeout(r, 1000)); 
+        }
+    }
+
+
     async function scrollDown(selector) {
         await page.$eval(selector, e => {
             e.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
         });
     }
 
-    async function click_btn(el)
-    {
-        await page.waitForSelector(el)
-        await sleep(DEFAULT_TIMEOUT);
-        await page.$eval(el, btn => btn.click());
-    }
-
-})
-.catch(error=>{
-    console.log(chalk.red(`\n --------------------- ${error.message} ------------------- \n`))
-})
+})()
