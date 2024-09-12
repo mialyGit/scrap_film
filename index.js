@@ -1,53 +1,69 @@
-
-
-import puppeteer from 'puppeteer-extra';
-
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-
-import AnonymizeUa from 'puppeteer-extra-plugin-anonymize-ua';
-
+import { connect } from 'puppeteer-real-browser'
+import dotenv from 'dotenv';
+import fs from 'fs';
 import AdblockerPlugin from 'puppeteer-extra-plugin-adblocker';
-
-import fs from 'fs'
-
 import chalk from 'chalk';
 
-import dotenv from 'dotenv'
+connect({
 
-(async () => {
+    headless: false,
 
+    args: ["--start-maximized"],
+
+    customConfig: {},
+
+    connectOption: {
+        defaultViewport: null
+    },
+
+    skipTarget: [],
+
+    fingerprint: false,
+
+    turnstile: true,
+
+    connectOption: {},
+
+    fpconfig: {},
+
+    plugins: [
+        AdblockerPlugin({ blockTrackers: false })
+    ]
+
+    // proxy:{
+    //     host:'<proxy-host>',
+    //     port:'<proxy-port>',
+    //     username:'<proxy-username>',
+    //     password:'<proxy-password>'
+    // }
+
+})
+.then(async response => {
+    
     dotenv.config();
 
-    const headless = process.env.HEADLESS == 'true' || process.env.HEADLESS == '1';
     const DEFAULT_TIMEOUT = parseInt(process.env.DEFAULT_TIMEOUT || '2000');
     const NBR_PAGE = parseInt(process.env.NBR_PAGE || '100');
+    const USE_WEB_CACHE = process.env.USE_WEB_CACHE == 'true' || process.env.USE_WEB_CACHE == '1';
+    const URL_TO_SCRAPE = process.env.URL_TO_SCRAPE || 'https://french-stream.hair';
+    const NOTE = process.env.NOTE || '8';
+    const GENRES = process.env.GENRES || 'horreur|thriller';
 
-    puppeteer.use(AdblockerPlugin({ blockTrackers: false }))
-    puppeteer.use(StealthPlugin())
-    puppeteer.use(AnonymizeUa())
+    const arrayOfNote = NOTE.split('|');
+    var genreSearch = GENRES.split('|');
 
-    const browserSetup = {
-        "headless": headless,
-        "defaultViewport": null,
-        "userDataDir": "./profile",
-        "ignoreHTTPSErrors": true,
-        "args": [
-            "--start-maximized",
-            "--disable-web-security", 
-            "--disable-site-isolation-trials",
-            "--disable-features=IsolateOrigins,site-per-process",
-            "--netifs-to-ignore=INTERFACE_TO_IGNORE",
-            "--disable-dev-shm-usage"
-        ],
+    var noteConfig = {};
 
-        "ignoreDefaultArgs": ["--enable-automation"]
+    if(arrayOfNote.length > 1) {
+        noteConfig = createObjectWithMinMax(arrayOfNote[0], arrayOfNote[1]);
+    } else if (arrayOfNote.length > 0) {
+        noteConfig = createObjectWithMinMax(arrayOfNote[0], '10');
     }
 
-    var genreSearch = ['horreur', 'thriller'];
-
-    var browser = await puppeteer.launch(browserSetup)
-    var page = await browser.newPage()
+    const {browser, page} = response
+    
     await page.setDefaultTimeout(0)
+    await page.setDefaultNavigationTimeout(0)
 
     var responses = [], init_nbr_page = 1, init_info=0;
 
@@ -70,13 +86,24 @@ import dotenv from 'dotenv'
 
         var current_page = i == 1 ? '' : 'page/' + i;
 
+        var proxy_url = USE_WEB_CACHE ? "https://webcache.googleusercontent.com/search?q=cache:" : "";
+        
         try {
-            await page.goto('https://web.french-stream.bio/xfsearch/version-film/'+current_page, { waitUntil: 'networkidle2' });
+            await page.goto(proxy_url + URL_TO_SCRAPE + '/'+current_page, { waitUntil: 'domcontentloaded' });
         } catch (error) {
             
         }
 
+        let verify = null
+        let startDate = Date.now()
+        while (!verify && (Date.now() - startDate) < 30000) {
+            verify = await page.evaluate(() => { return document.querySelector('.link_row') ? true : null }).catch(() => null)
+            await new Promise(r => setTimeout(r, 1000)); 
+        }
+        
+        // await resolveCloudFlare()
         await page.waitForSelector('#dle-content')
+
         await new Promise(r => setTimeout(r, DEFAULT_TIMEOUT));
 
         const links = await page.evaluate(() => {
@@ -94,7 +121,7 @@ import dotenv from 'dotenv'
             const link = links[j];
 
             try {
-                await page.goto(link, { waitUntil: 'networkidle2' });
+                await page.goto(proxy_url + link, { waitUntil: 'networkidle2' });
             } catch (error) {
                 
             }
@@ -123,7 +150,7 @@ import dotenv from 'dotenv'
             });
 
             const title = await page.evaluate(() => {
-                return document.querySelectorAll('h1#s-title')[1].innerText
+                return document.querySelectorAll('h1#s-title')[0].innerText
             });
 
             const note = await page.evaluate(() => {
@@ -142,7 +169,8 @@ import dotenv from 'dotenv'
             fs.writeFileSync('log.txt', `${i},${j}`, 'utf8');
 
             if(!containsObject(info, responses)) {
-                if(isDataInText(genreSearch, genre.toLowerCase()) && parseFloat(note) > 8) {
+                if(isDataInText(genreSearch, genre?.toLowerCase())) {
+                    if(parseFloat(note) >= noteConfig.start && parseFloat(note) <= noteConfig.end)
                     responses.push(info);
                     fs.writeFileSync('data.json', JSON.stringify(responses, null, 4), 'utf8');
                 }
@@ -155,15 +183,29 @@ import dotenv from 'dotenv'
 
     }
     
+
     console.log(chalk.green(`\n--------------------------------------- Scraping finished -----------------------------\n`));
 
     function isDataInText(dataArray, searchText) {
         for (let i = 0; i < dataArray.length; i++) {
-          if (searchText.includes(dataArray[i])) {
+          if (searchText && searchText.includes(dataArray[i])) {
             return true; // Return true if any element is found in the text
           }
         }
         return false; // Return false if none of the elements are found in the text
+    }
+
+    function sleep(ms) {
+        return new Promise((resolve) => {
+          setTimeout(resolve, ms);
+        });
+    }
+
+    function createObjectWithMinMax(num1, num2) {
+        var start = Math.min(parseFloat(num1), parseFloat(num2));
+        var end = Math.max(parseFloat(num1), parseFloat(num2));
+    
+        return { start: start, end: end };
     }
 
 
@@ -177,9 +219,14 @@ import dotenv from 'dotenv'
         });
     }
 
-    async function scrollDownElement(el){
-        await page.evaluate((e)=>{
-            e.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-        }, el)
+    async function click_btn(el)
+    {
+        await page.waitForSelector(el)
+        await sleep(DEFAULT_TIMEOUT);
+        await page.$eval(el, btn => btn.click());
     }
-})()
+
+})
+.catch(error=>{
+    console.log(chalk.red(`\n --------------------- ${error.message} ------------------- \n`))
+})

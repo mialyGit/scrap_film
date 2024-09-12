@@ -1,4 +1,5 @@
 node_modules
 profile
-data.json
-log.txt
+data
+**/*.json
+**/*.txt
