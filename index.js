@@ -87,7 +87,7 @@ import chalk from 'chalk';
         }
         
         if(i == init_nbr_page) {
-            await waitForCloudflareResolved()
+            await waitForCloudflareResolved(15000)
         }
 
         await page.waitForSelector('#dle-content')
@@ -118,6 +118,8 @@ import chalk from 'chalk';
             process.stdout.cursorTo(0);
             process.stdout.write(`Page : ${chalk.green(i)} \tInfo : ${j+1} \tDonnées : ${chalk.blue(responses.length)}`);
 
+            fs.writeFileSync('log.txt', `${i},${j}`, 'utf8');
+
             try {
                 await page.waitForSelector('.fr-count.fr-common', {timeout:5000})
             } catch (error) {
@@ -126,16 +128,25 @@ import chalk from 'chalk';
                 continue;
             }
             
-
-            await sleep(DEFAULT_TIMEOUT)
-            
             await scrollDown('#s-list');
 
             await sleep(DEFAULT_TIMEOUT)
+
+            const note = await page.evaluate(() => {
+                return document.querySelectorAll('.fr-count.fr-common')[0]?.innerText?.split('\n')[0]
+            });
+
+            if(!!!(parseFloat(note) >= noteConfig.start && parseFloat(note) <= noteConfig.end)) {
+                continue;
+            }
             
             const genre = await page.evaluate(() => {
                 return document.querySelectorAll('#s-list li[rel="nofollow"]')[0]?.innerText?.split(':')[1]
             });
+
+            if(!!!(isDataInText(genreSearch, genre?.toLowerCase()))) {
+                continue;
+            }
 
             const title = await page.evaluate(() => {
                 for (var h1 of document.querySelectorAll('h1')) {
@@ -145,9 +156,13 @@ import chalk from 'chalk';
                 return '';
             });
 
-            const note = await page.evaluate(() => {
-                return document.querySelectorAll('.fr-count.fr-common')[0]?.innerText?.split('\n')[0]
+            const version = await page.evaluate(() => {
+                return document.querySelectorAll('#film_lang')[0]?.innerText?.trim()
             });
+
+            const date_sortie = (await get_text_from_xpath('//li[span[contains(text(), "Date de sortie")]]'))?.split(':').pop().trim();
+
+            const video_embed = await getVideoEmbedUrl()
 
             const url = await page.url()
 
@@ -155,18 +170,23 @@ import chalk from 'chalk';
                 title,
                 note,
                 genre,
+                version,
+                date_sortie,
+                video_embed,
                 url
             }
 
-            fs.writeFileSync('log.txt', `${i},${j}`, 'utf8');
-
-            if(!containsObject(info, responses)) {
-                if(isDataInText(genreSearch, genre?.toLowerCase())) {
-                    if(parseFloat(note) >= noteConfig.start && parseFloat(note) <= noteConfig.end)
-                    responses.push(info);
-                    fs.writeFileSync('data.json', JSON.stringify(responses, null, 4), 'utf8');
-                }
+            if(!!!containsObject(info, responses)) {             
+                responses.push(info);
+                fs.writeFileSync('data.json', JSON.stringify(responses, null, 4), 'utf8');
             }
+
+            //  else {
+            //     responses = responses.map(item => {
+            //         return { ...item, info: { ...info } };
+            //     });
+            //     fs.writeFileSync('data.json', JSON.stringify(responses, null, 4), 'utf8');
+            // }
 
             init_info = 0
         }
@@ -201,8 +221,8 @@ import chalk from 'chalk';
     }
 
 
-    function containsObject(obj, list) {
-        return list.some(elem => JSON.stringify(elem) == JSON.stringify(obj))
+    function containsObject(obj, list, key = "url") {
+        return list.some(elem => elem[key] == obj[key])
     }
 
     async function waitForCloudflareResolved(timeout = 30000) {
@@ -219,6 +239,40 @@ import chalk from 'chalk';
         await page.$eval(selector, e => {
             e.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
         });
+    }
+
+    async function get_text_from_xpath(xpath) {
+        await page.waitForSelector('::-p-xpath('+xpath+')');
+        return await page.evaluate((xp) => {
+            const result = document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            if (result) {
+              return result.textContent;
+            }
+            return null;
+          }, xpath);
+    }
+
+    async function click_btn(el)
+    {
+        await page.waitForSelector(el)
+        await sleep(DEFAULT_TIMEOUT);
+        await page.$eval(el, btn => btn.click());
+    }
+
+    async function getVideoEmbedUrl() {
+        await click_btn('.movie_play #gGotop')
+        await sleep(DEFAULT_TIMEOUT);
+        await page.waitForSelector('a[href*="uqload"]')
+
+        return await page.evaluate(() => {
+            for (var i = 0, el; el = document.querySelectorAll('a[href*="uqload"]')[i]; i++) {
+                var version = el.innerText?.trim()?.toLowerCase();
+                if(version.includes('french')) {
+                    return el.href;
+                }
+            }
+            return ''
+        })
     }
 
 })()
